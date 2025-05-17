@@ -105,6 +105,29 @@ class PayTimer {
             }
             
             console.log('PayTimer initialized successfully');
+
+            // Restore active shift if present
+            const activeShift = localStorage.getItem('activeShift');
+            if (activeShift) {
+                this.shiftData = JSON.parse(activeShift);
+                this.isRunning = true;
+                this.startBtn.disabled = true;
+                this.endBtn.disabled = false;
+            }
+
+            // Start interval to check shift state every second
+            this.timerInterval = setInterval(() => {
+                if (this.isRunning && this.shiftData) {
+                    this.handleShiftState();
+                }
+            }, 1000);
+
+            // Listen for page visibility change
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && this.isRunning && this.shiftData) {
+                    this.handleShiftState();
+                }
+            });
         } catch (error) {
             console.error('Error initializing PayTimer:', error);
             alert('Failed to initialize the timer. Please check the console for details.');
@@ -234,13 +257,14 @@ class PayTimer {
             const breakStart = this.breakStartInput.value;
             const breakDuration = (parseInt(this.breakHoursInput.value) * 60 + parseInt(this.breakMinutesInput.value)) * 60 * 1000;
 
-            console.log('Shift settings:', {
-                wage,
-                shiftStart,
-                shiftDuration,
-                breakStart,
-                breakDuration
-            });
+            // Calculate the scheduled shift start Date object
+            const [startHours, startMinutes] = shiftStart.split(':').map(Number);
+            const now = new Date();
+            let scheduledStart = new Date(now);
+            scheduledStart.setHours(startHours, startMinutes, 0, 0);
+            if (scheduledStart < now) {
+                scheduledStart.setDate(scheduledStart.getDate() + 1);
+            }
 
             this.shiftData = {
                 wage,
@@ -248,34 +272,18 @@ class PayTimer {
                 shiftDuration,
                 breakStart,
                 breakDuration,
-                startTime: new Date()
+                scheduledStart: scheduledStart.toISOString(),
+                started: false
             };
+
+            // Persist shiftData in localStorage
+            localStorage.setItem('activeShift', JSON.stringify(this.shiftData));
 
             this.isRunning = true;
             this.startBtn.disabled = true;
             this.endBtn.disabled = false;
 
-            // Calculate time until shift start
-            const [startHours, startMinutes] = shiftStart.split(':').map(Number);
-            const now = new Date();
-            this.shiftActualStartTime = new Date(now);
-            this.shiftActualStartTime.setHours(startHours, startMinutes, 0, 0);
-            
-            // If shift start time is earlier today, set it to tomorrow
-            if (this.shiftActualStartTime < now) {
-                this.shiftActualStartTime.setDate(this.shiftActualStartTime.getDate() + 1);
-            }
-
-            const timeUntilStart = this.shiftActualStartTime - now;
-            console.log('Time until shift start:', timeUntilStart);
-            
-            if (timeUntilStart > 0) {
-                console.log('Starting countdown to shift start');
-                this.startCountdownToShift(timeUntilStart);
-            } else {
-                console.log('Shift start time has passed, starting shift immediately');
-                this.startShiftTimer();
-            }
+            this.handleShiftState();
         } catch (error) {
             console.error('Error in startShift:', error);
             alert('An error occurred while starting the shift. Please check the console for details.');
@@ -285,52 +293,34 @@ class PayTimer {
         }
     }
 
-    startCountdownToShift(timeUntilStart) {
-        this.countdownInterval = setInterval(() => {
-            const now = new Date();
-            const timeLeft = this.shiftActualStartTime - now;
-            
-            if (timeLeft <= 0) {
-                console.log('Countdown finished, starting shift');
-                clearInterval(this.countdownInterval);
-                this.startShiftTimer();
-                return;
-            }
+    handleShiftState() {
+        // Called on interval and on visibilitychange
+        const now = new Date();
+        if (!this.shiftData) return;
+        const scheduledStart = new Date(this.shiftData.scheduledStart);
+        const shiftEnd = new Date(scheduledStart.getTime() + this.shiftData.shiftDuration);
 
-            this.countdownEl.textContent = `Starting in: ${this.formatTime(timeLeft)}`;
+        if (now < scheduledStart) {
+            // Still waiting for shift to start
+            this.countdownEl.textContent = `Starting in: ${this.formatTime(scheduledStart - now)}`;
             this.shiftTimerEl.textContent = '--:--:--';
-        }, 1000);
+            this.breakStatusEl.textContent = '';
+            this.updateEarnings();
+        } else if (now >= scheduledStart && now < shiftEnd) {
+            // Shift is running
+            this.countdownEl.textContent = '';
+            this.shiftStartTime = scheduledStart;
+            this.shiftTimerEl.textContent = this.formatTime(shiftEnd - now);
+            this.updateEarnings();
+            this.checkBreak();
+        } else if (now >= shiftEnd) {
+            // Shift is over
+            this.endShift();
+        }
     }
 
     startShiftTimer() {
-        console.log('Starting shift timer');
-        this.countdownEl.textContent = '';
-        this.shiftStartTime = new Date();
-        this.lastEarningsUpdate = new Date(); // Track last update for break logic
-
-        this.timerInterval = setInterval(() => {
-            const now = new Date();
-            const elapsed = now - this.shiftStartTime;
-            const remaining = this.shiftData.shiftDuration - elapsed;
-
-            console.log('Timer update:', {
-                elapsed,
-                remaining,
-                formatted: this.formatTime(remaining)
-            });
-
-            if (remaining <= 0) {
-                console.log('Shift duration completed');
-                this.endShift();
-                return;
-            }
-
-            this.shiftTimerEl.textContent = this.formatTime(remaining);
-            this.updateEarnings();
-            this.checkBreak();
-        }, 1000);
-
-        console.log('Shift timer started');
+        // Not used anymore, replaced by handleShiftState
     }
 
     checkBreak() {
@@ -352,19 +342,20 @@ class PayTimer {
     }
 
     updateEarnings() {
-        // Calculate total elapsed seconds since shift start, minus break time
+        if (!this.shiftData || !this.shiftData.scheduledStart) return;
         const now = new Date();
-        let elapsedMs = now - this.shiftStartTime;
-
+        const scheduledStart = new Date(this.shiftData.scheduledStart);
+        let elapsedMs = 0;
+        if (now > scheduledStart) {
+            elapsedMs = Math.min(now - scheduledStart, this.shiftData.shiftDuration);
+        }
         // Calculate break time elapsed so far
         let breakElapsedMs = 0;
         if (this.shiftData.breakStart && this.shiftData.breakDuration) {
             const [breakHours, breakMinutes] = this.shiftData.breakStart.split(':').map(Number);
-            const breakStart = new Date(this.shiftStartTime);
+            const breakStart = new Date(scheduledStart);
             breakStart.setHours(breakHours, breakMinutes, 0, 0);
             const breakEnd = new Date(breakStart.getTime() + this.shiftData.breakDuration);
-
-            // If break has started and not ended, subtract time in break
             if (now > breakStart) {
                 if (now < breakEnd) {
                     breakElapsedMs = now - breakStart;
@@ -373,8 +364,6 @@ class PayTimer {
                 }
             }
         }
-
-        // Only count earnings for time not in break
         let effectiveElapsedMs = elapsedMs - breakElapsedMs;
         if (effectiveElapsedMs < 0) effectiveElapsedMs = 0;
         const wagePerMs = this.shiftData.wage / 3600 / 1000;
@@ -385,6 +374,8 @@ class PayTimer {
 
     endShift() {
         console.log('Ending shift');
+        // Remove active shift from localStorage
+        localStorage.removeItem('activeShift');
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;

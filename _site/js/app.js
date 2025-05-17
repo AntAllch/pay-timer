@@ -400,8 +400,14 @@ class PayTimer {
 
         // Add to weekly earnings and history
         this.weeklyEarnings += this.currentEarnings;
+        // Calculate shift start and end time strings
+        const shiftStartDate = this.shiftStartTime ? new Date(this.shiftStartTime) : new Date();
+        const shiftEndDate = new Date(shiftStartDate.getTime() + this.shiftData.shiftDuration);
+        const formatTime = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         this.shiftHistory.unshift({
             date: new Date().toLocaleDateString(),
+            shiftStart: formatTime(shiftStartDate),
+            shiftEnd: formatTime(shiftEndDate),
             earnings: this.currentEarnings,
             duration: this.formatTime(this.shiftData.shiftDuration),
             wage: this.shiftData.wage
@@ -442,6 +448,8 @@ class PayTimer {
                             <button class="delete-shift-btn" data-idx="${idx}" title="Delete shift">✕</button>
                             <div class="shift-info">
                                 <div>Date: ${shift.date}</div>
+                                <div>Start: ${shift.shiftStart || '--:--'}</div>
+                                <div>End: ${shift.shiftEnd || '--:--'}</div>
                                 <div>Earnings: £${Number(shift.earnings).toFixed(2)}</div>
                                 <div>Duration: ${shift.duration}</div>
                                 <div>Wage: £${shift.wage}/hr</div>

@@ -306,18 +306,19 @@ class PayTimer {
         console.log('Starting shift timer');
         this.countdownEl.textContent = '';
         this.shiftStartTime = new Date();
-        
+        this.lastEarningsUpdate = new Date(); // Track last update for break logic
+
         this.timerInterval = setInterval(() => {
             const now = new Date();
             const elapsed = now - this.shiftStartTime;
             const remaining = this.shiftData.shiftDuration - elapsed;
-            
+
             console.log('Timer update:', {
                 elapsed,
                 remaining,
                 formatted: this.formatTime(remaining)
             });
-            
+
             if (remaining <= 0) {
                 console.log('Shift duration completed');
                 this.endShift();
@@ -325,13 +326,8 @@ class PayTimer {
             }
 
             this.shiftTimerEl.textContent = this.formatTime(remaining);
-            this.checkBreak();
-        }, 1000);
-
-        // Start earnings calculation
-        this.earningsInterval = setInterval(() => {
-            console.log('Updating earnings');
             this.updateEarnings();
+            this.checkBreak();
         }, 1000);
 
         console.log('Shift timer started');
@@ -356,12 +352,35 @@ class PayTimer {
     }
 
     updateEarnings() {
-        if (!this.isBreak) {
-            const wagePerSecond = this.shiftData.wage / 3600;
-            this.currentEarnings += wagePerSecond;
-            this.currentEarningsEl.textContent = `£${this.currentEarnings.toFixed(2)}`;
-            console.log('Earnings updated:', this.currentEarnings);
+        // Calculate total elapsed seconds since shift start, minus break time
+        const now = new Date();
+        let elapsedMs = now - this.shiftStartTime;
+
+        // Calculate break time elapsed so far
+        let breakElapsedMs = 0;
+        if (this.shiftData.breakStart && this.shiftData.breakDuration) {
+            const [breakHours, breakMinutes] = this.shiftData.breakStart.split(':').map(Number);
+            const breakStart = new Date(this.shiftStartTime);
+            breakStart.setHours(breakHours, breakMinutes, 0, 0);
+            const breakEnd = new Date(breakStart.getTime() + this.shiftData.breakDuration);
+
+            // If break has started and not ended, subtract time in break
+            if (now > breakStart) {
+                if (now < breakEnd) {
+                    breakElapsedMs = now - breakStart;
+                } else {
+                    breakElapsedMs = this.shiftData.breakDuration;
+                }
+            }
         }
+
+        // Only count earnings for time not in break
+        let effectiveElapsedMs = elapsedMs - breakElapsedMs;
+        if (effectiveElapsedMs < 0) effectiveElapsedMs = 0;
+        const wagePerMs = this.shiftData.wage / 3600 / 1000;
+        this.currentEarnings = effectiveElapsedMs * wagePerMs;
+        this.currentEarningsEl.textContent = `£${this.currentEarnings.toFixed(2)}`;
+        console.log('Earnings updated:', this.currentEarnings);
     }
 
     endShift() {
@@ -420,11 +439,13 @@ class PayTimer {
                 .map((shift, idx) => {
                     try {
                         return `<div class="shift-history-item">
-                            <div>Date: ${shift.date}</div>
-                            <div>Earnings: £${Number(shift.earnings).toFixed(2)}</div>
-                            <div>Duration: ${shift.duration}</div>
-                            <div>Wage: £${shift.wage}/hr</div>
-                            <button class="delete-shift-btn" data-idx="${idx}">Delete</button>
+                            <button class="delete-shift-btn" data-idx="${idx}" title="Delete shift">✕</button>
+                            <div class="shift-info">
+                                <div>Date: ${shift.date}</div>
+                                <div>Earnings: £${Number(shift.earnings).toFixed(2)}</div>
+                                <div>Duration: ${shift.duration}</div>
+                                <div>Wage: £${shift.wage}/hr</div>
+                            </div>
                         </div>`;
                     } catch (itemErr) {
                         console.error('Error rendering shift at index', idx, shift, itemErr);

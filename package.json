@@ -1,0 +1,22 @@
+{
+  "name": "new-paytimer",
+  "version": "1.0.0",
+  "description": "A web app to track earnings during work shifts with break functionality",
+  "main": "index.js",
+  "scripts": {
+    "start": "eleventy --serve",
+    "build": "eleventy"
+  },
+  "keywords": [
+    "pay",
+    "timer",
+    "earnings",
+    "work",
+    "shift"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@11ty/eleventy": "^2.0.1"
+  }
+} 
